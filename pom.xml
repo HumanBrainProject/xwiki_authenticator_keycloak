@@ -97,10 +97,10 @@
   </developers>
 
   <!--scm>
-    <connection>scm:git:git://github.com/xwiki-contrib/xwiki-authenticator-headers.git</connection>
-    <developerConnection>scm:git:git@github.com:xwiki-contrib/xwiki-authenticator-headers.git</developerConnection>
+    <connection>scm:git:git://github.com/xwiki-contrib/xwiki-authenticator-keycloak.git</connection>
+    <developerConnection>scm:git:git@github.com:xwiki-contrib/xwiki-authenticator-keycloak.git</developerConnection>
     <url>https://github.com/xwiki-contrib/xwiki-authenticator-headers</url>
-    <tag>xwiki-authenticator-headers-2.0.2</tag>
+    <tag>xwiki-authenticator-keycloak-2.0.2</tag>
   </scm-->
   <!--distributionManagement>
     <repository>

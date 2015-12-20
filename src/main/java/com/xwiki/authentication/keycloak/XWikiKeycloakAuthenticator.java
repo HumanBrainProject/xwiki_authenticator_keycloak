@@ -18,7 +18,7 @@
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
-package com.xwiki.authentication.headers;
+package com.xwiki.authentication.keycloak;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -67,7 +67,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     private static final Logger LOG = LoggerFactory.getLogger(XWikiKeycloakAuthenticator.class);
 
     //    // Configuration
-//    private static final String CONFIG_PREFIX = "xwiki.authentication.headers.";//    private static final String CONFIG_ID_FIELD = CONFIG_PREFIX + "id_field";
+//    private static final String CONFIG_PREFIX = "xwiki.authentication.keycloak.";//    private static final String CONFIG_ID_FIELD = CONFIG_PREFIX + "id_field";
 //    private static final String CONFIG_AUTH_FIELD = CONFIG_PREFIX + "auth_field";//    private static final String CONFIG_SECRET_FIELD = CONFIG_PREFIX + "secret_field";
 //    private static final String CONFIG_SECRET_VALUE = CONFIG_PREFIX + "secret_value";
 //    private static final String CONFIG_GROUP_FIELD = CONFIG_PREFIX + "group_field";
@@ -548,7 +548,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 //
 //    /**
 //     * @param context the XWiki context.
-//     * @return the mapping between HTTP header group names and values read from headers.
+//     * @return the mapping between HTTP header group names and values read from keycloak.
 //     */
 //    private Map<String, DocumentReference> getGroupMapping(XWikiContext context)
 //    {

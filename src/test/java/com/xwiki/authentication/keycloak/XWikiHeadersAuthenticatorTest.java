@@ -18,7 +18,7 @@
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
-package com.xwiki.authentication.headers;
+package com.xwiki.authentication.keycloak;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -62,14 +62,14 @@ import static org.mockito.Mockito.when;
 @AllComponents
 public class XWikiHeadersAuthenticatorTest
 {
-    private static final String CONFIG_ID_FIELD = "xwiki.authentication.headers.id_field";
-    private static final String CONFIG_AUTH_FIELD = "xwiki.authentication.headers.auth_field";
-    private static final String CONFIG_SECRET_FIELD = "xwiki.authentication.headers.secret_field";
-    private static final String CONFIG_SECRET_VALUE = "xwiki.authentication.headers.secret_value";
-    private static final String CONFIG_GROUP_FIELD = "xwiki.authentication.headers.group_field";
-    private static final String CONFIG_GROUP_VALUE_SEPARATOR = "xwiki.authentication.headers.group_value_separator";
-    private static final String CONFIG_GROUPS_MAPPING = "xwiki.authentication.headers.groups_mapping";
-    private static final String CONFIG_FIELDS_MAPPING = "xwiki.authentication.headers.fields_mapping";
+    private static final String CONFIG_ID_FIELD = "xwiki.authentication.keycloak.id_field";
+    private static final String CONFIG_AUTH_FIELD = "xwiki.authentication.keycloak.auth_field";
+    private static final String CONFIG_SECRET_FIELD = "xwiki.authentication.keycloak.secret_field";
+    private static final String CONFIG_SECRET_VALUE = "xwiki.authentication.keycloak.secret_value";
+    private static final String CONFIG_GROUP_FIELD = "xwiki.authentication.keycloak.group_field";
+    private static final String CONFIG_GROUP_VALUE_SEPARATOR = "xwiki.authentication.keycloak.group_value_separator";
+    private static final String CONFIG_GROUPS_MAPPING = "xwiki.authentication.keycloak.groups_mapping";
+    private static final String CONFIG_FIELDS_MAPPING = "xwiki.authentication.keycloak.fields_mapping";
 
     private static final String AUTH_FIELD = "remote_user";
     private static final String USERID_FIELD = "userid";
