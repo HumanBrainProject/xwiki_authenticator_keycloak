@@ -20,6 +20,7 @@
 
 package com.xwiki.authentication.keycloak;
 
+import java.security.Principal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -29,6 +30,9 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
 import org.apache.commons.lang.StringUtils;
+import org.keycloak.KeycloakPrincipal;
+import org.keycloak.KeycloakSecurityContext;
+import org.keycloak.representations.IDToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.xwiki.model.EntityType;
@@ -49,13 +53,13 @@ import com.xpn.xwiki.web.XWikiRequest;
 
 /**
  * Authentication based on Keycloak OpenID Connect protocol
- *
+ * <p/>
  * Assumptions:
  * <ol>
- *     <li>The keycloak adapter is configured to authenticate the user (e.g at the Tomcat level) and the details of the
- *     authenticated user are available from the HttpServletRequest</li>
- *     <li>Keycloak is configured to provide the roles required by XWiki. e.g. if XWiki expects a user to be a member of
- *     the group XWiki.Foo then a role of that name will be configure in Keycloak and (maybe) assigned to the user</li>
+ * <li>The keycloak adapter is configured to authenticate the user (e.g at the Tomcat level) and the details of the
+ * authenticated user are available from the HttpServletRequest</li>
+ * <li>Keycloak is configured to provide the roles required by XWiki. e.g. if XWiki expects a user to be a member of
+ * the group XWiki.Foo then a role of that name will be configure in Keycloak and (maybe) assigned to the user</li>
  * </ol>
  *
  * @version $Id: $
@@ -85,8 +89,11 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
     // TODO - define all the groups
     // QUESTION - what groups are needed?
-    // QUESTION - shouldn't these be retreived from XWiki rather than hardcoded? If so then how?
-    private static final String[] XWIKI_GROUPS = {"XWiki.XWikiAllGroup"};
+    // QUESTION - shouldn't these be retrieved from XWiki rather than hardcoded? If so then how?
+    private static final String[] XWIKI_GROUPS = {
+            "XWiki.XWikiAllGroup"
+    //        , "XWiki.XWikiAdminGroup"
+    };
 
     /**
      * Space where user are stored in the wiki.
@@ -127,34 +134,32 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * @see com.xpn.xwiki.user.impl.xwiki.AppServerTrustedAuthServiceImpl#checkAuth(com.xpn.xwiki.XWikiContext)
      */
     @Override
-    public XWikiUser checkAuth(XWikiContext context) throws XWikiException {
+    public XWikiUser checkAuth(XWikiContext xwikiContext) throws XWikiException {
         LOG.debug("Starting keycloak based authentication.");
 
+        KeycloakSecurityContext keycloakContext = getKeycloakSecurityContext(xwikiContext);
 
-        String remoteUser = "kermit"; // TODO replace with geting from keycloak token
-        // if no user is provided try standard XWiki authentication
-        if (StringUtils.isEmpty(remoteUser)) {
-            LOG.debug("No user found, falling back.");
-            cleanUserInSession(context);
-            return super.checkAuth(context);
+        if (keycloakContext != null) {
+            IDToken idToken = keycloakContext.getIdToken();
+            if (idToken != null) {
+
+
+                LOG.debug("Found authenticated keycloak user");
+
+                // create user if needed, synchronize user group and set user in session
+                DocumentReference validUser = authenticateUser(xwikiContext, keycloakContext);
+
+                String user = compactWikiEntityReferenceSerializer.serialize(validUser);
+                LOG.debug("XWiki user [{}] authenticated.", user);
+                return new XWikiUser(user);
+            }
         }
 
-        LOG.debug("Found authenticated keycloak user [{}]", remoteUser);
 
-        String userId = remoteUser; // QUESTION what is distinction between remoteUser and userId?
-        if (StringUtils.isEmpty(userId)) {
-            LOG.debug("No userID found, authentication failed.");
-            cleanUserInSession(context);
-            return null;
-        }
-        LOG.debug("Found authenticated userID [{}]", userId);
 
-        // create user if needed, synchronize user group and set user in session
-        DocumentReference validUser = authenticateUser(userId, context);
-
-        String user = compactWikiEntityReferenceSerializer.serialize(validUser);
-        LOG.debug("XWiki user [{}] authenticated.", user);
-        return new XWikiUser(user);
+        LOG.debug("No user found, falling back.");
+        cleanUserInSession(xwikiContext);
+        return super.checkAuth(xwikiContext);
     }
 
     /**
@@ -164,7 +169,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * java.lang.String, com.xpn.xwiki.XWikiContext)
      */
     @Override
-    public XWikiUser checkAuth(String username, String password, String rememberme, XWikiContext context)
+    public XWikiUser checkAuth(String username, String password, String rememberme, XWikiContext xwikiContext)
             throws XWikiException {
 //        String auth = getHeader(getAuthFieldName(context), context);
 //
@@ -174,34 +179,40 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 //            return checkAuth(context);
 //        }
 
-        boolean isKeycloakAuthtencticated = false; // TODO - check whether valid keycloak token is present
-        if (!isKeycloakAuthtencticated) {
-            return super.checkAuth(username, password, rememberme, context);
+        if (getKeycloakSecurityContext(xwikiContext) == null) {
+            return super.checkAuth(username, password, rememberme, xwikiContext);
         } else {
-            return checkAuth(context);
+            return checkAuth(xwikiContext);
         }
     }
 
     /**
      * If current session is not yet associated to the current user, ensure user existence and synchronization.
      *
-     * @param userId  the user id to check.
-     * @param context the current context.
+     * @param xwikiContext the current XWiki context.
+     * @param keycloakContext the current Keycloak context.
      * @return a reference to the authenticated user.
      * @throws XWikiException on error.
      */
-    private DocumentReference authenticateUser(String userId, XWikiContext context) throws XWikiException {
+    private DocumentReference authenticateUser(XWikiContext xwikiContext, KeycloakSecurityContext keycloakContext) throws XWikiException {
         // convert user to avoid . and @ in names, and remove case sensitivity.
-        String validUserName = getValidUserName(userId);
+
+        IDToken token = keycloakContext.getIdToken();
+        LOG.info("ID = " + token.getId());
+        LOG.info("NAME = " + token.getName());
+        LOG.info("PREFERRED USERNAME = " + token.getPreferredUsername());
+        LOG.info("SUBJECT = " + token.getSubject());
+
+        String validUserName = getValidUserName(token.getPreferredUsername());
 
         DocumentReference validUser = defaultDocumentReferenceResolver.resolve(validUserName, USER_SPACE_REFERENCE);
 
         // If user already the current session user, do not try to synchronize it.
-        if (!validUserName.equals(getUserInSession(context))) {
-            cleanUserInSession(context);
+        if (!validUserName.equals(getUserInSession(xwikiContext))) {
+            cleanUserInSession(xwikiContext);
             LOG.debug("Synchronizing XWiki user [{}]", validUser);
-            synchronizeUser(validUser, context);
-            setUserInSession(validUserName, context);
+            synchronizeUser(validUser, xwikiContext, keycloakContext);
+            setUserInSession(validUserName, xwikiContext);
         }
         return validUser;
     }
@@ -210,21 +221,17 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * Create the user, retrieving user attributes.
      *
      * @param user    the reference of the user document.
-     * @param context the current context.
+     * @param xwikiContext the current XWiki context.
+     * @param keycloakContext the current Keycloak context.
      * @throws XWikiException on error.
      */
-    private void createUser(DocumentReference user, XWikiContext context) throws XWikiException {
+    private void createUser(DocumentReference user, XWikiContext xwikiContext, KeycloakSecurityContext keycloakContext) throws XWikiException {
         LOG.debug("Creating new XWiki user [{}]", user);
 
         // create user
-        //Map<String, String> extended = getExtendedInformations(context);
-        Map<String, String> extended = new HashMap<>();
-        // TODO - read the necessary attributes from the keycloak token and fill the extended map
-        // QUESTION - what attributes are expected?
-        extended.put("email", "bananas@fruit.com");
-        extended.put("active", "1");
+        Map<String, String> extended = getExtendedUserInfo(keycloakContext);
 
-        if (context.getWiki().createUser(user.getName(), extended, context) != 1) {
+        if (xwikiContext.getWiki().createUser(user.getName(), extended, xwikiContext) != 1) {
             throw new XWikiException(XWikiException.MODULE_XWIKI_USER, XWikiException.ERROR_XWIKI_USER_CREATE,
                     String.format("Unable to create user [{0}]", user));
         }
@@ -233,28 +240,68 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     }
 
     /**
+     * Find the keycloak context from the XWiki context
+     * @param xwikiContext
+     * @return
+     */
+    private KeycloakSecurityContext getKeycloakSecurityContext(XWikiContext xwikiContext) {
+        Principal principal = xwikiContext.getRequest().getUserPrincipal();
+        if (principal != null && principal instanceof KeycloakPrincipal) {
+            KeycloakPrincipal kp = (KeycloakPrincipal) principal;
+            if (kp != null) {
+                return kp.getKeycloakSecurityContext();
+            }
+        }
+        LOG.warn("KeycloakSecurityContext could not be found");
+        return null;
+    }
+
+    private Map<String, String> getExtendedUserInfo(KeycloakSecurityContext keycloakContext) {
+        Map<String, String> extended = new HashMap<>();
+        IDToken token = keycloakContext.getIdToken();
+        if (token == null) {
+            LOG.warn("No ID token present. User attributes cannot be filled");
+        } else {
+            // TODO - read the necessary attributes from the keycloak token and fill the extended map
+            // QUESTION - what attributes are expected?
+
+
+            extended.put("email", token.getEmail());
+            extended.put("username", token.getPreferredUsername());
+            extended.put("nickname", token.getNickName());
+            extended.put("first_name", token.getGivenName());
+            extended.put("last_name", token.getFamilyName());
+            extended.put("active", "1");
+
+        }
+        return extended;
+    }
+
+    /**
      * Create the user if needed, and synchronize user in mapped groups.
      *
      * @param user    the reference of the user document.
-     * @param context the current context.
+     * @param xwikiContext the current context.
+     * @param keycloakContext the current Keycloak context.
      * @throws XWikiException on error.
      */
-    private void synchronizeUser(DocumentReference user, XWikiContext context) throws XWikiException {
-        // QUESTION - this does not need to change?
+    private void synchronizeUser(DocumentReference user, XWikiContext xwikiContext, KeycloakSecurityContext keycloakContext) throws XWikiException {
 
-        String database = context.getWikiId();
+        String database = xwikiContext.getWikiId();
         try {
             // Switch to main wiki to force users to be global users
-            context.setWikiId(user.getWikiReference().getName());
+            xwikiContext.setWikiId(user.getWikiReference().getName());
 
             // test if user already exists
-            if (!context.getWiki().exists(user, context)) {
-                createUser(user, context);
+            if (!xwikiContext.getWiki().exists(user, xwikiContext)) {
+                createUser(user, xwikiContext, keycloakContext);
+            } else {
+                // TODO - maybe synchronize user when not created?
             }
 
-            synchronizeGroups(user, context);
+            synchronizeGroups(user, xwikiContext);
         } finally {
-            context.setWikiId(database);
+            xwikiContext.setWikiId(database);
         }
     }
 
@@ -309,11 +356,12 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         try {
             for (Map.Entry<String, DocumentReference> e : getXWikiGroups().entrySet()) {
                 // we assume that we assign the exact roles needed by XWiki in Keycloak
-                if (context.getRequest().isUserInRole(e.getKey())) {
-                    groupInRefs.add(e.getValue());
-                } else {
-                    groupOutRefs.add(e.getValue());
-                }
+//                if (context.getRequest().isUserInRole(e.getKey())) {
+//                    groupInRefs.add(e.getValue());
+//                } else {
+//                    groupOutRefs.add(e.getValue());
+//                }
+                groupInRefs.add(e.getValue()); // give them everything for now
             }
 
             // apply synch
@@ -335,6 +383,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     private Map<String, DocumentReference> getXWikiGroups() {
         Map<String, DocumentReference> map = new HashMap<>();
         for (String groupName : XWIKI_GROUPS) {
+            LOG.debug("Getting DocumentReference for group [{}]", groupName);
             map.put(groupName, defaultDocumentReferenceResolver.resolve(groupName, USER_SPACE_REFERENCE));
         }
         return map;
@@ -597,8 +646,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     private void syncGroupsMembership(DocumentReference user, Collection<DocumentReference> groupInRefs,
                                       Collection<DocumentReference> groupOutRefs, XWikiContext context) throws XWikiException {
 
-        // QUESTION - this does not need to change?
-
         Collection<DocumentReference> xwikiUserGroupList =
                 context.getWiki().getGroupService(context).getAllGroupsReferencesForMember(user, 0, 0, context);
 
@@ -629,8 +676,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * @param context the XWiki context.
      */
     private void removeUserFromXWikiGroup(DocumentReference user, DocumentReference group, XWikiContext context) {
-
-        // QUESTION - this does not need to change?
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("Removing user [{}] from xwiki group [{}]", user, group);
@@ -668,8 +713,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * @param context the XWiki context.
      */
     private void addUserToXWikiGroup(DocumentReference user, DocumentReference group, XWikiContext context) {
-
-        // QUESTION - this does not need to change?
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("Adding user [{}] to xwiki group [{}]", user, group);

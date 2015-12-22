@@ -32,14 +32,18 @@
   <groupId>org.xwiki.contrib.authentication</groupId>
   <artifactId>xwiki-authenticator-keycloak</artifactId>
   <name>Keycloak Authenticator for XWiki</name>
-  <version>2.0.2</version>
+  <version>1.0-SNAPSHOT</version>
   <description>XWiki authentication based on Keycloak OpenID connect</description>
   <properties>
-    <xwiki.extension.features>xwiki-authentication-keycloak</xwiki.extension.features>
     <platform.version>${project.parent.version}</platform.version>
     <rendering.version>${platform.version}</rendering.version>
   </properties>
   <dependencies>
+    <dependency>
+      <groupId>org.keycloak</groupId>
+      <artifactId>keycloak-core</artifactId>
+      <version>1.7.0.Final</version>
+    </dependency>
     <dependency>
       <groupId>org.xwiki.platform</groupId>
       <artifactId>xwiki-platform-oldcore</artifactId>
