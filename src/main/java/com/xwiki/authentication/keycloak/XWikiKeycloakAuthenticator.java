@@ -92,7 +92,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     // QUESTION - shouldn't these be retrieved from XWiki rather than hardcoded? If so then how?
     private static final String[] XWIKI_GROUPS = {
             "XWiki.XWikiAllGroup"
-    //        , "XWiki.XWikiAdminGroup"
+            , "XWiki.XWikiAdminGroup"
     };
 
     /**
@@ -135,15 +135,13 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      */
     @Override
     public XWikiUser checkAuth(XWikiContext xwikiContext) throws XWikiException {
+        
+        // if its a protected page (defined at the Tomcat level) then there will be a Keycloak token present
         LOG.debug("Starting keycloak based authentication.");
-
         KeycloakSecurityContext keycloakContext = getKeycloakSecurityContext(xwikiContext);
-
         if (keycloakContext != null) {
             IDToken idToken = keycloakContext.getIdToken();
             if (idToken != null) {
-
-
                 LOG.debug("Found authenticated keycloak user");
 
                 // create user if needed, synchronize user group and set user in session
@@ -155,8 +153,18 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
             }
         }
 
+        // user may have previously been authenticated but this time requested a non-authenticated page
+        //  so we must look in the session for the user
+        LOG.debug("Looking for user in session");
+        String sessionUser = getUserInSession(xwikiContext);
+        if (sessionUser != null) {
+            LOG.debug("User [{}] found in session", sessionUser);
+            DocumentReference userDocRef = defaultDocumentReferenceResolver.resolve(sessionUser, USER_SPACE_REFERENCE);
+            String user = compactWikiEntityReferenceSerializer.serialize(userDocRef);
+            return new XWikiUser(user);
+        }
 
-
+        // no trace of the user having been authenticated so we fall back
         LOG.debug("No user found, falling back.");
         cleanUserInSession(xwikiContext);
         return super.checkAuth(xwikiContext);
@@ -189,7 +197,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     /**
      * If current session is not yet associated to the current user, ensure user existence and synchronization.
      *
-     * @param xwikiContext the current XWiki context.
+     * @param xwikiContext    the current XWiki context.
      * @param keycloakContext the current Keycloak context.
      * @return a reference to the authenticated user.
      * @throws XWikiException on error.
@@ -220,8 +228,8 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     /**
      * Create the user, retrieving user attributes.
      *
-     * @param user    the reference of the user document.
-     * @param xwikiContext the current XWiki context.
+     * @param user            the reference of the user document.
+     * @param xwikiContext    the current XWiki context.
      * @param keycloakContext the current Keycloak context.
      * @throws XWikiException on error.
      */
@@ -241,6 +249,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
     /**
      * Find the keycloak context from the XWiki context
+     *
      * @param xwikiContext
      * @return
      */
@@ -252,7 +261,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
                 return kp.getKeycloakSecurityContext();
             }
         }
-        LOG.warn("KeycloakSecurityContext could not be found");
+        LOG.debug("KeycloakSecurityContext could not be found");
         return null;
     }
 
@@ -280,8 +289,8 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     /**
      * Create the user if needed, and synchronize user in mapped groups.
      *
-     * @param user    the reference of the user document.
-     * @param xwikiContext the current context.
+     * @param user            the reference of the user document.
+     * @param xwikiContext    the current context.
      * @param keycloakContext the current Keycloak context.
      * @throws XWikiException on error.
      */
