@@ -135,7 +135,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      */
     @Override
     public XWikiUser checkAuth(XWikiContext xwikiContext) throws XWikiException {
-        
+
         // if its a protected page (defined at the Tomcat level) then there will be a Keycloak token present
         LOG.debug("Starting keycloak based authentication.");
         KeycloakSecurityContext keycloakContext = getKeycloakSecurityContext(xwikiContext);
@@ -206,10 +206,15 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         // convert user to avoid . and @ in names, and remove case sensitivity.
 
         IDToken token = keycloakContext.getIdToken();
-        LOG.info("ID = " + token.getId());
+
         LOG.info("NAME = " + token.getName());
         LOG.info("PREFERRED USERNAME = " + token.getPreferredUsername());
         LOG.info("SUBJECT = " + token.getSubject());
+
+        // TODO - maybe allow this to be configured from xwiki.cfg?
+        if ("superadmin".equals(token.getPreferredUsername())) {
+            throw new IllegalStateException("logging in as superadmin is not permitted");
+        }
 
         String validUserName = getValidUserName(token.getPreferredUsername());
 
