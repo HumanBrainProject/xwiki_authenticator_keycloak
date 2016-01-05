@@ -21,17 +21,14 @@
 package com.xwiki.authentication.keycloak;
 
 import java.security.Principal;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 
-import org.apache.commons.lang.StringUtils;
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
+import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.IDToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,31 +67,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      */
     private static final Logger LOG = LoggerFactory.getLogger(XWikiKeycloakAuthenticator.class);
 
-    //    // Configuration
-//    private static final String CONFIG_PREFIX = "xwiki.authentication.keycloak.";//    private static final String CONFIG_ID_FIELD = CONFIG_PREFIX + "id_field";
-//    private static final String CONFIG_AUTH_FIELD = CONFIG_PREFIX + "auth_field";//    private static final String CONFIG_SECRET_FIELD = CONFIG_PREFIX + "secret_field";
-//    private static final String CONFIG_SECRET_VALUE = CONFIG_PREFIX + "secret_value";
-//    private static final String CONFIG_GROUP_FIELD = CONFIG_PREFIX + "group_field";
-//    private static final String CONFIG_GROUP_VALUE_SEPARATOR = CONFIG_PREFIX + "group_value_separator";
-//    private static final String CONFIG_GROUPS_MAPPING = CONFIG_PREFIX + "groups_mapping";
-//    private static final String CONFIG_FIELDS_MAPPING = CONFIG_PREFIX + "fields_mapping";
-//
-//    // Default values for configuration
-//    private static final String DEFAULT_AUTH_FIELD = "remote_user";
-//    private static final String DEFAULT_ID_FIELD = DEFAULT_AUTH_FIELD;
-//    private static final String DEFAULT_GROUP_FIELD = "";
-//    private static final String DEFAULT_FIELDS_MAPPING = "email=mail,first_name=givenname,last_name=sn";
-//    private static final String DEFAULT_GROUPS_MAPPING = "";
-//    private static final String DEFAULT_GROUP_VALUE_SEPARATOR = "\\|";
-
-    // TODO - define all the groups
-    // QUESTION - what groups are needed?
-    // QUESTION - shouldn't these be retrieved from XWiki rather than hardcoded? If so then how?
-    private static final String[] XWIKI_GROUPS = {
-            "XWiki.XWikiAllGroup"
-            , "XWiki.XWikiAdminGroup"
-    };
-
     /**
      * Space where user are stored in the wiki.
      */
@@ -118,15 +90,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     private EntityReferenceSerializer<String> compactWikiEntityReferenceSerializer = Utils.getComponent(
             EntityReferenceSerializer.TYPE_STRING, "compactwiki");
 
-//    /**
-//     * Cache of the field mapping.
-//     */
-//    private Map<String, String> fieldMappings;
-//
-//    /**
-//     * Cache of the group mapping.
-//     */
-//    private Map<String, DocumentReference> groupMappings;
 
     /**
      * {@inheritDoc}
@@ -177,15 +140,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * java.lang.String, com.xpn.xwiki.XWikiContext)
      */
     @Override
-    public XWikiUser checkAuth(String username, String password, String rememberme, XWikiContext xwikiContext)
-            throws XWikiException {
-//        String auth = getHeader(getAuthFieldName(context), context);
-//
-//        if (StringUtils.isEmpty(auth)) {
-//            return super.checkAuth(username, password, rememberme, context);
-//        } else {
-//            return checkAuth(context);
-//        }
+    public XWikiUser checkAuth(String username, String password, String rememberme, XWikiContext xwikiContext) throws XWikiException {
 
         if (getKeycloakSecurityContext(xwikiContext) == null) {
             return super.checkAuth(username, password, rememberme, xwikiContext);
@@ -207,9 +162,9 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
         IDToken token = keycloakContext.getIdToken();
 
-        LOG.info("NAME = " + token.getName());
-        LOG.info("PREFERRED USERNAME = " + token.getPreferredUsername());
-        LOG.info("SUBJECT = " + token.getSubject());
+        LOG.debug("NAME = " + token.getName());
+        LOG.debug("PREFERRED USERNAME = " + token.getPreferredUsername());
+        LOG.debug("SUBJECT = " + token.getSubject());
 
         // TODO - maybe allow this to be configured from xwiki.cfg?
         if ("superadmin".equals(token.getPreferredUsername())) {
@@ -276,19 +231,34 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         if (token == null) {
             LOG.warn("No ID token present. User attributes cannot be filled");
         } else {
-            // TODO - read the necessary attributes from the keycloak token and fill the extended map
             // QUESTION - what attributes are expected?
-
-
             extended.put("email", token.getEmail());
             extended.put("username", token.getPreferredUsername());
             extended.put("nickname", token.getNickName());
             extended.put("first_name", token.getGivenName());
             extended.put("last_name", token.getFamilyName());
             extended.put("active", "1");
-
         }
+//        AccessToken accessToken = keycloakContext.getToken();
+//        for (Map.Entry<String,AccessToken.Access> e : accessToken.getResourceAccess().entrySet()) {
+//            LOG.debug("RESOURCE ACCESS: " + e.getKey() + " -> " + join(e.getValue().getRoles(), ","));
+//        }
+//        LOG.debug("REALM ACCESS: " + join(accessToken.getRealmAccess().getRoles(), ","));
+
         return extended;
+    }
+
+    private String join(Collection items, String sep) {
+        StringBuilder b = new StringBuilder();
+        int count = 0;
+        for (Object o : items) {
+            if (count > 0) {
+                b.append(sep);
+            }
+            b.append(o.toString());
+            count++;
+        }
+        return b.toString();
     }
 
     /**
@@ -326,61 +296,21 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * @param context the current context.
      */
     private void synchronizeGroups(DocumentReference user, XWikiContext context) {
-//        Map<String, DocumentReference> myGroupMappings = getGroupMapping(context);
-//
-//        // Only synchronize groups if a group mapping configuration exists
-//        if (myGroupMappings.size() > 0) {
-//            try {
-//                String[] groups = getGroupFieldHeaderValue(context);
-//                Collection<DocumentReference> groupInRefs = new ArrayList<DocumentReference>();
-//                Collection<DocumentReference> groupOutRefs = new ArrayList<DocumentReference>();
-//
-//                // membership to add
-//                if (groups != null) {
-//                    for (String group : groups) {
-//                        if (!group.trim().equals("")) {
-//                            DocumentReference groupRef = myGroupMappings.get(group);
-//                            if (groupRef == null) {
-//                                LOG.warn("No mapping to XWiki group has been found for header group [{}].", group);
-//                            } else {
-//                                groupInRefs.add(groupRef);
-//                            }
-//                        }
-//                    }
-//                }
-//
-//                // membership to remove
-//                for (DocumentReference groupRef : myGroupMappings.values()) {
-//                    if (!groupInRefs.contains(groupRef)) {
-//                        groupOutRefs.add(groupRef);
-//                    }
-//                }
-//
-//                // apply synch
-//                syncGroupsMembership(user, groupInRefs, groupOutRefs, context);
-//            } catch (Exception e) {
-//                // we should continue although we have not been able to update the groups
-//                // however we should log an error
-//                LOG.error("Failed to update groups for user [{}]", user, e);
-//            }
-//        }
 
         Collection<DocumentReference> groupInRefs = new ArrayList<>();
         Collection<DocumentReference> groupOutRefs = new ArrayList<>();
         try {
-            for (Map.Entry<String, DocumentReference> e : getXWikiGroups().entrySet()) {
+            for (Map.Entry<String, DocumentReference> e : getXWikiGroups(context).entrySet()) {
                 // we assume that we assign the exact roles needed by XWiki in Keycloak
-//                if (context.getRequest().isUserInRole(e.getKey())) {
-//                    groupInRefs.add(e.getValue());
-//                } else {
-//                    groupOutRefs.add(e.getValue());
-//                }
-                groupInRefs.add(e.getValue()); // give them everything for now
+                if (context.getRequest().isUserInRole(e.getKey())) {
+                    groupInRefs.add(e.getValue());
+                } else {
+                    groupOutRefs.add(e.getValue());
+                }
             }
 
             // apply synch
             syncGroupsMembership(user, groupInRefs, groupOutRefs, context);
-
 
         } catch (Exception e) {
             // we should continue although we have not been able to update the groups
@@ -394,9 +324,11 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      *
      * @return Map of DocumentReferences keyed by the group name
      */
-    private Map<String, DocumentReference> getXWikiGroups() {
+    private Map<String, DocumentReference> getXWikiGroups(XWikiContext context) throws XWikiException {
         Map<String, DocumentReference> map = new HashMap<>();
-        for (String groupName : XWIKI_GROUPS) {
+        List allGroups = context.getWiki().getGroupService(context).getAllMatchedGroups(null, false, 0, 0, null, context);
+        for (Object group : allGroups) {
+            String groupName = group.toString();
             LOG.debug("Getting DocumentReference for group [{}]", groupName);
             map.put(groupName, defaultDocumentReferenceResolver.resolve(groupName, USER_SPACE_REFERENCE));
         }
@@ -441,23 +373,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         }
         return request.getSession(true);
     }
-
-//    /**
-//     * @param name    the name of the header.
-//     * @param context the current context.
-//     * @return the value of the named request header, or null if no value is defined.
-//     */
-//    private static String getHeader(String name, XWikiContext context) {
-//        if (StringUtils.isBlank(name)) {
-//            return null;
-//        }
-//
-//        HttpServletRequest request = getServletRequest(context);
-//        if (request == null) {
-//            return null;
-//        }
-//        return request.getHeader(name);
-//    }
 
     /**
      * Set the given user in the session.
@@ -508,154 +423,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         }
         return user;
     }
-
-//    /**
-//     * @param context the current context.
-//     * @return the name of the user id field.
-//     */
-//    private static String getIdFieldName(XWikiContext context)
-//    {
-//        return context.getWiki().Param(CONFIG_ID_FIELD, DEFAULT_ID_FIELD);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the name of the user field.
-//     */
-//    private static String getAuthFieldName(XWikiContext context) {
-//        return context.getWiki().Param(CONFIG_AUTH_FIELD, DEFAULT_AUTH_FIELD);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the name of the shared secret field.
-//     */
-//    private static String getSecretFieldName(XWikiContext context)
-//    {
-//        return context.getWiki().Param(CONFIG_SECRET_FIELD, null);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the expected shared secret value.
-//     */
-//    private static String getSecretFieldValue(XWikiContext context)
-//    {
-//        return context.getWiki().Param(CONFIG_SECRET_VALUE, null);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the name of the group field.
-//     */
-//    private static String getGroupFieldName(XWikiContext context)
-//    {
-//        return context.getWiki().Param(CONFIG_GROUP_FIELD, DEFAULT_GROUP_FIELD);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the separator to use to parse the group field.
-//     */
-//    private static String getGroupValueSeparator(XWikiContext context)
-//    {
-//        return context.getWiki().Param(CONFIG_GROUP_VALUE_SEPARATOR, DEFAULT_GROUP_VALUE_SEPARATOR);
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the list of group name extracted from the group field.
-//     */
-//    private static String[] getGroupFieldHeaderValue(XWikiContext context)
-//    {
-//        String headerValue = getHeader(getGroupFieldName(context), context);
-//        if (StringUtils.isBlank(headerValue)) {
-//            return null;
-//        }
-//
-//        return headerValue.split(getGroupValueSeparator(context));
-//    }
-//
-//    /**
-//     * @param context the current context.
-//     * @return the user information based on field mapping.
-//     */
-//    private Map<String, String> getExtendedInformations(XWikiContext context)
-//    {
-//        Map<String, String> extInfos = new HashMap<String, String>();
-//
-//        for (Map.Entry<String, String> entry : getFieldMapping(context).entrySet()) {
-//            String headerValue = getHeader(entry.getValue(), context);
-//
-//            if (!StringUtils.isBlank(headerValue)) {
-//                extInfos.put(entry.getKey(), headerValue.trim());
-//            }
-//        }
-//
-//        return extInfos;
-//    }
-//
-//    /**
-//     * @param context the XWiki context.
-//     * @return the mapping between HTTP header fields names and XWiki user profile fields names.
-//     */
-//    private Map<String, String> getFieldMapping(XWikiContext context)
-//    {
-//        if (this.fieldMappings == null) {
-//            this.fieldMappings =
-//                getMappingsParameter(CONFIG_FIELDS_MAPPING, DEFAULT_FIELDS_MAPPING, context);
-//        }
-//
-//        return this.fieldMappings;
-//    }
-//
-//    /**
-//     * @param context the XWiki context.
-//     * @return the mapping between HTTP header group names and values read from keycloak.
-//     */
-//    private Map<String, DocumentReference> getGroupMapping(XWikiContext context)
-//    {
-//        if (this.groupMappings == null) {
-//            Map<String, String> mappings = getMappingsParameter(CONFIG_GROUPS_MAPPING, DEFAULT_GROUPS_MAPPING, context);
-//            this.groupMappings = new HashMap<String, DocumentReference>();
-//            for (Map.Entry<String, String> mapping : mappings.entrySet()) {
-//                this.groupMappings.put(mapping.getKey(),
-//                    defaultDocumentReferenceResolver.resolve(mapping.getValue(), USER_SPACE_REFERENCE));
-//            }
-//        }
-//
-//        return this.groupMappings;
-//    }
-//
-//    /**
-//     * Get a mapping from configuration.
-//     *
-//     * @param param        the name of the configuration param to parse.
-//     * @param defaultParam the default value if the configuration is missing.
-//     * @param context      the current context.
-//     * @return a mapping configuration.
-//     */
-//    private static Map<String, String> getMappingsParameter(String param, String defaultParam, XWikiContext context) {
-//        Map<String, String> result = new HashMap<String, String>();
-//        String mappings = context.getWiki().Param(param, defaultParam);
-//
-//        if (StringUtils.isBlank(mappings)) {
-//            return result;
-//        }
-//
-//        String[] parsedMappings = mappings.split(",");
-//
-//        for (String mapping : parsedMappings) {
-//            String[] parsedMapping = mapping.split("=", 2);
-//            if (parsedMapping.length > 1) {
-//                result.put(parsedMapping[0].trim(), parsedMapping[1].trim());
-//            } else {
-//                LOG.error("Error parsing " + param + " in xwiki.cfg: " + mapping);
-//            }
-//        }
-//
-//        return result;
-//    }
 
     private void syncGroupsMembership(DocumentReference user, Collection<DocumentReference> groupInRefs,
                                       Collection<DocumentReference> groupOutRefs, XWikiContext context) throws XWikiException {
