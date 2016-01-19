@@ -20,6 +20,9 @@
 
 package com.xwiki.authentication.keycloak;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.security.Principal;
 import java.util.*;
 
@@ -28,7 +31,7 @@ import javax.servlet.http.HttpSession;
 
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
-import org.keycloak.representations.AccessToken;
+import org.keycloak.common.util.KeycloakUriBuilder;
 import org.keycloak.representations.IDToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +78,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     /**
      * Key to store the authenticated username in session.
      */
-    private static final String USERNAME_SESSION_KEY = XWikiKeycloakAuthenticator.class.getName() + ".username";
+    private static final String KEYCLOAK_SESSION_KEY = XWikiKeycloakAuthenticator.class.getName() + ".userdetails";
 
 
     /**
@@ -99,6 +102,34 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     @Override
     public XWikiUser checkAuth(XWikiContext xwikiContext) throws XWikiException {
 
+
+        // if it's the logout URL then we need to handle this specially
+        if (isLogout(xwikiContext)) {
+            KeycloakUserDetails kud = getUserInSession(xwikiContext);
+
+            // this reports the wrong user - XWiki.XWikiGuest, which was the user before logging in
+            LOG.info("Logout XWikiContext User " + xwikiContext.getUser());
+
+            cleanUserInSession(xwikiContext);
+
+            if (kud != null) {
+                LOG.debug("Logout Keycloak User " + kud.getUsername());
+                String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud);
+                LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
+                if (keycloakLogoutURL != null) {
+                    try {
+                        xwikiContext.getResponse().sendRedirect(keycloakLogoutURL);
+                    } catch (IOException ioe) {
+                        LOG.error("Failed to redirect to Keycloak", ioe);
+                    }
+                } else {
+                    LOG.info("No Keycloak logout provided. Cannot logout from Keycloak");
+                }
+            }
+            return null;
+        }
+
+
         // if its a protected page (defined at the Tomcat level) then there will be a Keycloak token present
         LOG.debug("Starting keycloak based authentication.");
         KeycloakSecurityContext keycloakContext = getKeycloakSecurityContext(xwikiContext);
@@ -119,10 +150,10 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         // user may have previously been authenticated but this time requested a non-authenticated page
         //  so we must look in the session for the user
         LOG.debug("Looking for user in session");
-        String sessionUser = getUserInSession(xwikiContext);
-        if (sessionUser != null) {
-            LOG.debug("User [{}] found in session", sessionUser);
-            DocumentReference userDocRef = defaultDocumentReferenceResolver.resolve(sessionUser, USER_SPACE_REFERENCE);
+        KeycloakUserDetails kud = getUserInSession(xwikiContext);
+        if (kud != null) {
+            LOG.debug("User [{}] found in session", kud.getUsername());
+            DocumentReference userDocRef = defaultDocumentReferenceResolver.resolve(kud.getUsername(), USER_SPACE_REFERENCE);
             String user = compactWikiEntityReferenceSerializer.serialize(userDocRef);
             return new XWikiUser(user);
         }
@@ -132,6 +163,76 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         cleanUserInSession(xwikiContext);
         return super.checkAuth(xwikiContext);
     }
+
+
+    public String generateKeycloakLogoutURL(XWikiContext xwikiContext, KeycloakUserDetails kud) throws XWikiException {
+        String xredirect = xwikiContext.getRequest().getParameter("xredirect");
+        IDToken token = kud.getIdToken();
+        String realm = kud.getRealm();
+        String issuer = token.getIssuer(); // https://192.168.59.103/auth/realms/samplerealm
+        // ServiceUrlConstants.TOKEN_SERVICE_LOGOUT_PATH = "/realms/{realm-name}/protocol/openid-connect/logout";
+        LOG.debug("realm:" + realm + " issuer:" + issuer + " xredirect: " + xredirect);
+
+        HttpServletRequest req = xwikiContext.getRequest();
+        URI uri = null;
+        try {
+            uri = new URI(req.getScheme(), req.getRemoteHost(), req.getContextPath() + xredirect, null);
+        } catch (URISyntaxException e) {
+            LOG.error("Bad Logout URI", e);
+            return null;
+        }
+        String redirectTo = uri.toString();
+        LOG.debug("RedirectTo: " + redirectTo);
+
+        //URI uri = KeycloakUriBuilder.fromUri(issuer).path("/protocol/openid-connect/logout").queryParam("redirect_uri", redirectTo).build(realm);
+        KeycloakUriBuilder builder = KeycloakUriBuilder.fromUri(issuer).path("/protocol/openid-connect/logout");
+        if (redirectTo != null) {
+            builder = builder.queryParam("redirect_uri", redirectTo);
+        }
+
+        // returns something like this:
+        // https://192.168.59.103/auth/realms/samplerealm/protocol/openid-connect/logout?redirect_uri=http%3A%2F%2F192.168.59.103%3A8080%2Fsampleapp%2Findex.html
+        return builder.build(realm).toString();
+
+    }
+
+    private boolean isLogout(XWikiContext xwikiContext) {
+
+        String path = xwikiContext.getRequest().getPathInfo();
+        LOG.debug("PathInfo: " + path);
+        if (path.startsWith("/logout")) {
+            LOG.debug("It's a logout URL");
+            return true;
+        }
+
+//        // check if its logout page
+//        //1. get xwiki.authentication.logoutpage property from xwiki.cfg
+//        XWiki xwiki = xwikiContext.getWiki();
+//        String logoutPattern = xwiki.Param("xwiki.authentication.logoutpage");
+//        if (logoutPattern != null) {
+//
+////            String requestURL = getMatchableURL(xwikiContext);
+////            URLPatternMatcher patternMatcher = new URLPatternMatcher();
+////
+////            if (patternMatcher.match(requestURL, logoutPattern) {
+////
+////            }
+//
+//        }
+
+        return false;
+    }
+
+//    private String getMatchableURL(XWikiContext xwikiContext) {
+//        // extract the servlet path portion that needs to be checked
+//        String matchableURL = xwikiContext.getRequest().getServletPath();
+//        // add the pathInfo, as it needs to be part of the URL we check
+//        String pathInfo = xwikiContext.getRequest().getPathInfo();
+//        if (pathInfo != null) {
+//            matchableURL = matchableURL + pathInfo;
+//        }
+//        return matchableURL;
+//    }
 
     /**
      * {@inheritDoc}
@@ -162,6 +263,7 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
         IDToken token = keycloakContext.getIdToken();
 
+
         LOG.debug("NAME = " + token.getName());
         LOG.debug("PREFERRED USERNAME = " + token.getPreferredUsername());
         LOG.debug("SUBJECT = " + token.getSubject());
@@ -180,7 +282,8 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
             cleanUserInSession(xwikiContext);
             LOG.debug("Synchronizing XWiki user [{}]", validUser);
             synchronizeUser(validUser, xwikiContext, keycloakContext);
-            setUserInSession(validUserName, xwikiContext);
+
+            setUserInSession(new KeycloakUserDetails(validUserName, token, keycloakContext.getRealm()), xwikiContext);
         }
         return validUser;
     }
@@ -377,22 +480,22 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     /**
      * Set the given user in the session.
      *
-     * @param user    the user name.
+     * @param kud     Details for the user.
      * @param context the current context.
      */
-    private static void setUserInSession(String user, XWikiContext context) {
+    private static void setUserInSession(KeycloakUserDetails kud, XWikiContext context) {
         HttpSession session = getSession(context);
         if (session == null) {
             return;
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("XWiki user [{}] associated to session [{}]", user, session.getId());
+            LOG.debug("XWiki user [{}] associated to session [{}]", kud.getUsername(), session.getId());
         }
-        session.setAttribute(USERNAME_SESSION_KEY, user);
+        session.setAttribute(KEYCLOAK_SESSION_KEY, kud);
     }
 
     /**
-     * Set the given user in the session.
+     * Clear the given user in the session.
      *
      * @param context the current context.
      */
@@ -405,23 +508,23 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Clean XWiki user from session [{}]", session.getId());
         }
-        session.removeAttribute(USERNAME_SESSION_KEY);
+        session.removeAttribute(KEYCLOAK_SESSION_KEY);
     }
 
     /**
      * @param context the current context.
      * @return the user in session, or null if the session is not associated with a user.
      */
-    private static String getUserInSession(XWikiContext context) {
+    private static KeycloakUserDetails getUserInSession(XWikiContext context) {
         HttpSession session = getSession(context);
         if (session == null) {
             return null;
         }
-        String user = (String) session.getAttribute(USERNAME_SESSION_KEY);
-        if (LOG.isDebugEnabled() && user != null) {
-            LOG.debug("XWiki user [{}] retrieved from session [{}]", user, session.getId());
+        KeycloakUserDetails kud = (KeycloakUserDetails) session.getAttribute(KEYCLOAK_SESSION_KEY);
+        if (LOG.isDebugEnabled() && kud != null) {
+            LOG.debug("XWiki user [{}] retrieved from session [{}]", kud.getUsername(), session.getId());
         }
-        return user;
+        return kud;
     }
 
     private void syncGroupsMembership(DocumentReference user, Collection<DocumentReference> groupInRefs,
@@ -522,5 +625,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
             LOG.error("Failed to add a user [{}] to a group [{}]", user, group, e);
         }
     }
+
 
 }
