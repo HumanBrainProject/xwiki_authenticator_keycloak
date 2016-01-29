@@ -27,6 +27,8 @@ import java.security.Principal;
 import java.util.*;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletRequestWrapper;
+import javax.servlet.http.HttpServletResponseWrapper;
 import javax.servlet.http.HttpSession;
 
 import org.keycloak.KeycloakPrincipal;
@@ -116,9 +118,19 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
                 LOG.debug("Logout Keycloak User " + kud.getUsername());
                 String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud);
                 LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
+                String xredirect = xwikiContext.getRequest().getParameter("xredirect");
                 if (keycloakLogoutURL != null) {
                     try {
-                        xwikiContext.getResponse().sendRedirect(keycloakLogoutURL);
+                        //xwikiContext.getResponse().sendRedirect(keycloakLogoutURL);
+                        HttpServletResponseWrapper wrapper = new HttpServletResponseWrapper(xwikiContext.getResponse()) {
+                            @Override
+                            public void sendRedirect(String location) throws IOException {
+                                super.sendRedirect(location);
+                            }
+                        };
+                        wrapper.sendRedirect(keycloakLogoutURL);
+
+
                     } catch (IOException ioe) {
                         LOG.error("Failed to redirect to Keycloak", ioe);
                     }
