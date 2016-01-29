@@ -31,6 +31,8 @@ import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpServletResponseWrapper;
 import javax.servlet.http.HttpSession;
 
+import com.xpn.xwiki.web.XWikiResponse;
+import com.xpn.xwiki.web.XWikiServletResponse;
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
 import org.keycloak.common.util.KeycloakUriBuilder;
@@ -102,43 +104,33 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      * @see com.xpn.xwiki.user.impl.xwiki.AppServerTrustedAuthServiceImpl#checkAuth(com.xpn.xwiki.XWikiContext)
      */
     @Override
-    public XWikiUser checkAuth(XWikiContext xwikiContext) throws XWikiException {
+    public XWikiUser checkAuth(final XWikiContext xwikiContext) throws XWikiException {
 
 
         // if it's the logout URL then we need to handle this specially
         if (isLogout(xwikiContext)) {
-            KeycloakUserDetails kud = getUserInSession(xwikiContext);
+            final KeycloakUserDetails kud = getUserInSession(xwikiContext);
 
-            // this reports the wrong user - XWiki.XWikiGuest, which was the user before logging in
-            LOG.info("Logout XWikiContext User " + xwikiContext.getUser());
-
-            cleanUserInSession(xwikiContext);
+            //cleanUserInSession(xwikiContext);
 
             if (kud != null) {
                 LOG.debug("Logout Keycloak User " + kud.getUsername());
-                String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud);
-                LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
-                String xredirect = xwikiContext.getRequest().getParameter("xredirect");
-                if (keycloakLogoutURL != null) {
-                    try {
-                        //xwikiContext.getResponse().sendRedirect(keycloakLogoutURL);
-                        HttpServletResponseWrapper wrapper = new HttpServletResponseWrapper(xwikiContext.getResponse()) {
-                            @Override
-                            public void sendRedirect(String location) throws IOException {
-                                super.sendRedirect(location);
-                            }
-                        };
-                        wrapper.sendRedirect(keycloakLogoutURL);
 
+                XWikiResponse wrapper = new XWikiServletResponse(xwikiContext.getResponse().getHttpServletResponse()) {
+                    @Override
+                    public void sendRedirect(String location) throws IOException {
+                        LOG.info("XWiki redirect: " + location);
+                        //String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud, location);
+                        //LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
 
-                    } catch (IOException ioe) {
-                        LOG.error("Failed to redirect to Keycloak", ioe);
+                        // redirect to keycloak
+
+                        super.sendRedirect(location);
                     }
-                } else {
-                    LOG.info("No Keycloak logout provided. Cannot logout from Keycloak");
-                }
+                };
+                xwikiContext.setResponse(new XWikiServletResponse(wrapper));
             }
-            return null;
+            //return null;
         }
 
 
@@ -177,8 +169,8 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     }
 
 
-    public String generateKeycloakLogoutURL(XWikiContext xwikiContext, KeycloakUserDetails kud) throws XWikiException {
-        String xredirect = xwikiContext.getRequest().getParameter("xredirect");
+    public String generateKeycloakLogoutURL(XWikiContext xwikiContext, KeycloakUserDetails kud, String xredirect) {
+
         IDToken token = kud.getIdToken();
         String realm = kud.getRealm();
         String issuer = token.getIssuer(); // https://192.168.59.103/auth/realms/samplerealm
@@ -205,7 +197,6 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         // returns something like this:
         // https://192.168.59.103/auth/realms/samplerealm/protocol/openid-connect/logout?redirect_uri=http%3A%2F%2F192.168.59.103%3A8080%2Fsampleapp%2Findex.html
         return builder.build(realm).toString();
-
     }
 
     private boolean isLogout(XWikiContext xwikiContext) {
