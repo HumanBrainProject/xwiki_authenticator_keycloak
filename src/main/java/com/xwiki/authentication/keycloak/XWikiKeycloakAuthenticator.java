@@ -106,33 +106,29 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
     @Override
     public XWikiUser checkAuth(final XWikiContext xwikiContext) throws XWikiException {
 
-
         // if it's the logout URL then we need to handle this specially
         if (isLogout(xwikiContext)) {
             final KeycloakUserDetails kud = getUserInSession(xwikiContext);
-
-            //cleanUserInSession(xwikiContext);
-
             if (kud != null) {
                 LOG.debug("Logout Keycloak User " + kud.getUsername());
-
                 XWikiResponse wrapper = new XWikiServletResponse(xwikiContext.getResponse().getHttpServletResponse()) {
                     @Override
                     public void sendRedirect(String location) throws IOException {
-                        LOG.info("XWiki redirect: " + location);
-                        //String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud, location);
-                        //LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
-
-                        // redirect to keycloak
-
-                        super.sendRedirect(location);
+                        LOG.debug("XWiki redirect: " + location);
+                        String keycloakLogoutURL = generateKeycloakLogoutURL(xwikiContext, kud, location);
+                        LOG.debug("keycloak Logout URL: " + keycloakLogoutURL);
+                        if (keycloakLogoutURL == null) {
+                            // fallback and give up on keycloak logout
+                            super.sendRedirect(location);
+                        } else {
+                            // redirect to keycloak which redirects back to location
+                            super.sendRedirect(keycloakLogoutURL);
+                        }
                     }
                 };
                 xwikiContext.setResponse(new XWikiServletResponse(wrapper));
             }
-            //return null;
         }
-
 
         // if its a protected page (defined at the Tomcat level) then there will be a Keycloak token present
         LOG.debug("Starting keycloak based authentication.");
