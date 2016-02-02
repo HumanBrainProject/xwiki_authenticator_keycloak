@@ -1,7 +1,4 @@
 /*
- * See the NOTICE file distributed with this work for additional
- * information regarding copyright ownership.
- *
  * This is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of
@@ -20,17 +17,16 @@
 
 package com.xwiki.authentication.keycloak;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.security.Principal;
-import java.util.*;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletRequestWrapper;
-import javax.servlet.http.HttpServletResponseWrapper;
-import javax.servlet.http.HttpSession;
-
+import com.xpn.xwiki.XWiki;
+import com.xpn.xwiki.XWikiContext;
+import com.xpn.xwiki.XWikiException;
+import com.xpn.xwiki.doc.XWikiDocument;
+import com.xpn.xwiki.objects.BaseObject;
+import com.xpn.xwiki.objects.classes.BaseClass;
+import com.xpn.xwiki.user.api.XWikiUser;
+import com.xpn.xwiki.user.impl.xwiki.XWikiAuthServiceImpl;
+import com.xpn.xwiki.web.Utils;
+import com.xpn.xwiki.web.XWikiRequest;
 import com.xpn.xwiki.web.XWikiResponse;
 import com.xpn.xwiki.web.XWikiServletResponse;
 import org.keycloak.KeycloakPrincipal;
@@ -45,15 +41,13 @@ import org.xwiki.model.reference.DocumentReferenceResolver;
 import org.xwiki.model.reference.EntityReference;
 import org.xwiki.model.reference.EntityReferenceSerializer;
 
-import com.xpn.xwiki.XWikiContext;
-import com.xpn.xwiki.XWikiException;
-import com.xpn.xwiki.doc.XWikiDocument;
-import com.xpn.xwiki.objects.BaseObject;
-import com.xpn.xwiki.objects.classes.BaseClass;
-import com.xpn.xwiki.user.api.XWikiUser;
-import com.xpn.xwiki.user.impl.xwiki.XWikiAuthServiceImpl;
-import com.xpn.xwiki.web.Utils;
-import com.xpn.xwiki.web.XWikiRequest;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.security.Principal;
+import java.util.*;
 
 /**
  * Authentication based on Keycloak OpenID Connect protocol
@@ -96,6 +90,11 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
      */
     private EntityReferenceSerializer<String> compactWikiEntityReferenceSerializer = Utils.getComponent(
             EntityReferenceSerializer.TYPE_STRING, "compactwiki");
+
+    /**
+     * Cache of the logout pattern matcher.
+     */
+    private RequestMatcher logoutMatcher;
 
 
     /**
@@ -199,39 +198,20 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
         String path = xwikiContext.getRequest().getPathInfo();
         LOG.debug("PathInfo: " + path);
-        if (path.startsWith("/logout")) {
-            LOG.debug("It's a logout URL");
-            return true;
+        if (logoutMatcher == null) {
+            XWiki xwiki = xwikiContext.getWiki();
+            // default is: (/|/[^/]+/|/wiki/[^/]+/)logout/*
+            String logoutPattern = xwiki.Param("xwiki.authentication.logoutpage");
+            if (logoutPattern == null) {
+                logoutPattern = "(/|/[^/]+/|/wiki/[^/]+/)logout/*";
+            }
+            LOG.info("Using logout pattern of " + logoutPattern);
+            logoutMatcher = new RequestMatcher(logoutPattern == null ? "/logout/*" : logoutPattern);
         }
-
-//        // check if its logout page
-//        //1. get xwiki.authentication.logoutpage property from xwiki.cfg
-//        XWiki xwiki = xwikiContext.getWiki();
-//        String logoutPattern = xwiki.Param("xwiki.authentication.logoutpage");
-//        if (logoutPattern != null) {
-//
-////            String requestURL = getMatchableURL(xwikiContext);
-////            URLPatternMatcher patternMatcher = new URLPatternMatcher();
-////
-////            if (patternMatcher.match(requestURL, logoutPattern) {
-////
-////            }
-//
-//        }
-
-        return false;
+        boolean b = logoutMatcher.match(xwikiContext.getRequest());
+        LOG.debug("It's a logout URL: {}", b);
+        return b;
     }
-
-//    private String getMatchableURL(XWikiContext xwikiContext) {
-//        // extract the servlet path portion that needs to be checked
-//        String matchableURL = xwikiContext.getRequest().getServletPath();
-//        // add the pathInfo, as it needs to be part of the URL we check
-//        String pathInfo = xwikiContext.getRequest().getPathInfo();
-//        if (pathInfo != null) {
-//            matchableURL = matchableURL + pathInfo;
-//        }
-//        return matchableURL;
-//    }
 
     /**
      * {@inheritDoc}
