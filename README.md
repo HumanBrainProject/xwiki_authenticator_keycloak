@@ -1,7 +1,13 @@
 Provides XWiki authentication using Keycloak, a JBoss project that provides Single Sign On (SSO) using OpenID Connect
 (as well as lots more).
 
-NOTE: this authenticator is currently incomplete. The basic parts are working, but more work is needed.
+NOTE: this authenticator is fairly opinionated about how it functions. It assumes that you defined roles in Keycloak that 
+match what XWiki expects. If the user is granted that role in Keycloak then it is passed through to XWiki.
+On login the users details (email etc.) and roles from Keycloak are synchronised with those in XWiki so that at the start
+of any session the data for the user is updated.
+On logout the logout request is intercepted and redirected to Keycloak to sign out, before redirecting back to the original
+Xwiki redirect page (the XWiki xredirect header value).
+
 
 # Build
 
@@ -79,7 +85,7 @@ This will build a jar file containing the authenticator in the target dir.
 1. The Keycloak Tomcat adapter is configured. This is a Tomcat Valve, which means it is installed at the Tomcat server level
 e.g. in the $TOMCAT_HOME/lib dir.
 1. Certain resources in XWiki are defined to be secured. Potentially you could secure everything, but at the very least
-/bin/login/* should be secured so that any attempt in XWiki to login is intercepted by Tomcat and send to Keycloak.
+/bin/login/* should be secured so that any attempt in XWiki to login is intercepted by Tomcat and sent to Keycloak.
  
 When an unsecured page (that is unsecured at the Tomcat level) is accessed the following happens:
  
@@ -122,6 +128,11 @@ authenticated Xwiki handles all the authorizaion.
 
 Of course, you CAN secure more at the Tomcat level (even the whole wiki) if you wish.
 
+## Logout process
+Each request is checked for being a logout request. This is done by matching the regexp specified by the 
+xwiki.authentication.logoutpage property in xwiki.cfg and if matching redirect to Keycloak to logout, followed by
+redirecting back to the original XWiki redirect request.
+
 
 # Configuration
 
@@ -147,7 +158,7 @@ To set up tomcat to use container authentication using the Keycloak adapter valv
 
 (1) NOTE: there is a clash (2) between the Bouncy Castle classes (3) used by Keycloak and XWiki which prevents things working 
 "out of the box". You must remove the 2 offending classes from the Keycloak jars and replace with those from XWiki
-(this was the case for Keycloak 1.7 and XWiki 7.3 - the situation may be different for other versions).
+(this was the case for Keycloak 1.7 and XWiki 7.3 - the situation may differ for other versions).
 
 (2) The clash is due to the fact that the Keycloak adapter is a Tomcat valve and so the jars must be put in $TOMCAT_HOME/lib
 but those classes are then visible to all web apps, and so potentially clash with jars found in XWiki's WEB-INF/lib dir.
