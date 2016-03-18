@@ -32,6 +32,7 @@ import com.xpn.xwiki.web.XWikiServletResponse;
 import org.keycloak.KeycloakPrincipal;
 import org.keycloak.KeycloakSecurityContext;
 import org.keycloak.common.util.KeycloakUriBuilder;
+import org.keycloak.representations.AccessToken;
 import org.keycloak.representations.IDToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -175,7 +176,15 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
         HttpServletRequest req = xwikiContext.getRequest();
         URI uri = null;
         try {
-            uri = new URI(req.getScheme(), req.getRemoteHost(), req.getContextPath() + xredirect, null);
+            int port = req.getServerPort();
+            String scheme = req.getScheme();
+            if ( (port == 80 && "http".equals(scheme)) || (port == 443 && "https".equals(scheme))) {
+                //        URI(String scheme, String host, String path, String fragment)
+                uri = new URI(req.getScheme(), req.getServerName(), req.getContextPath() + xredirect, null);
+            } else {
+                //        URI(String scheme, String userInfo, String host, int port, String path, String query, String fragment)
+                uri = new URI(req.getScheme(), null, req.getServerName(), port == 80 ? 0 : port, req.getContextPath() + xredirect, null, null);
+            }
         } catch (URISyntaxException e) {
             LOG.error("Bad Logout URI", e);
             return null;
@@ -381,10 +390,21 @@ public class XWikiKeycloakAuthenticator extends XWikiAuthServiceImpl {
 
         Collection<DocumentReference> groupInRefs = new ArrayList<>();
         Collection<DocumentReference> groupOutRefs = new ArrayList<>();
+
+        KeycloakPrincipal p = (KeycloakPrincipal)context.getRequest().getUserPrincipal();
+        AccessToken.Access a = p.getKeycloakSecurityContext().getToken().getRealmAccess();
+        Set<String> roles = a.getRoles();
+
         try {
             for (Map.Entry<String, DocumentReference> e : getXWikiGroups(context).entrySet()) {
                 // we assume that we assign the exact roles needed by XWiki in Keycloak
-                if (context.getRequest().isUserInRole(e.getKey())) {
+//                if (context.getRequest().isUserInRole(e.getKey())) {
+//                    groupInRefs.add(e.getValue());
+//                } else {
+//                    groupOutRefs.add(e.getValue());
+//                }
+                // when updating to Tomcat8 and Keycloak 1.9.1 isUserInRole() stopped working. Need to work out why, but instead use this:
+                if (roles.contains(e.getKey())) {
                     groupInRefs.add(e.getValue());
                 } else {
                     groupOutRefs.add(e.getValue());
